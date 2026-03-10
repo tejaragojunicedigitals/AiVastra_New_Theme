@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/action_select_profile"
+        android:title="Select Profile" />
+    <item
+        android:id="@+id/action_select_from_gallery"
+        android:title="Select from Gallery" />
+    <item
+        android:id="@+id/action_downloads"
+        android:title="Downloads" />
+    <item
+        android:id="@+id/action_ai_vastra_3d"
+        android:title="Ai Vastra 3D" />
+</menu>

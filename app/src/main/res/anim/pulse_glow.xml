@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:anim/accelerate_decelerate_interpolator"
+    android:repeatCount="infinite"
+    android:repeatMode="reverse">
+
+    <!-- Zoom In / Out -->
+    <scale
+        android:duration="2500"
+        android:fromXScale="1.0"
+        android:toXScale="1.25"
+        android:fromYScale="1.0"
+        android:toYScale="1.25"
+        android:pivotX="50%"
+        android:pivotY="50%" />
+
+    <!-- Fade In / Out -->
+    <alpha
+        android:duration="2500"
+        android:fromAlpha="0.4"
+        android:toAlpha="1.0" />
+</set>
