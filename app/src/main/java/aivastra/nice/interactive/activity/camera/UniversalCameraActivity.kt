@@ -500,25 +500,21 @@ class UniversalCameraActivity : BaseActivity() {
                 Log.e("Camera2", "Image is sideways, fixing rotation: $rotationDegrees")
             }
 
-            val isFrontCamera = if(binding.camera.facing== Facing.FRONT){
+            val shouldMirror = binding.camera.facing == Facing.FRONT && !hasUsbCamera(context)
+
+         /*   val isFrontCamera = if(binding.camera.facing== Facing.FRONT){
                 true
             }else{
                 false
-            }
+            }*/
 
-            //for kiosk
-//            val isFrontCamera = true
-
-            //for mobile/tab
-//            val isFrontCamera = isFrontCameraImage(tempFile.absolutePath)
-
-            if (rotationDegrees == 0 && !isFrontCamera) {
+            if (rotationDegrees == 0 && !shouldMirror) {
                 return FileProvider.getUriForFile(context, "${context.packageName}.provider", tempFile)
             }
 
             val matrix = Matrix()
             if (rotationDegrees != 0) matrix.postRotate(rotationDegrees.toFloat())
-            if (isFrontCamera) matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+            if (shouldMirror) matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
 
             val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 
