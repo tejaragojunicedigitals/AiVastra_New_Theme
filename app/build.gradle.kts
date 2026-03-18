@@ -104,4 +104,5 @@ dependencies {
     implementation(libs.androidx.exoplayer.ui)
     implementation(libs.androidx.cameraview)
     implementation(libs.androidx.gpuimage)
+    implementation(libs.androidx.pose.detection)
 }

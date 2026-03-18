@@ -1,9 +1,15 @@
 package aivastra.nice.interactive.activity.launch
 
 import aivastra.nice.interactive.R
+import aivastra.nice.interactive.network.InternetSpeedChecker
+import aivastra.nice.interactive.network.NetworkDialogManager
+import aivastra.nice.interactive.network.NetworkMonitor
+import aivastra.nice.interactive.network.NetworkState
+import aivastra.nice.interactive.network.NetworkUtils
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.view.Window
 import android.view.WindowInsets
@@ -17,6 +23,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 
 open class BaseActivity : AppCompatActivity() {
 
@@ -25,6 +35,7 @@ open class BaseActivity : AppCompatActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         makeBarsTransparentAndVisible()
+        apiErrorHandleDialog()
     }
 
     override fun setContentView(layoutResID: Int) {
@@ -61,6 +72,35 @@ open class BaseActivity : AppCompatActivity() {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
                         View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                         View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        }
+    }
+
+    private fun apiErrorHandleDialog(){
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                NetworkMonitor.observe().collect {
+                    Log.e("NetworkState Observer received","$it")
+                    when (it) {
+                        NetworkState.NO_INTERNET -> {
+                            NetworkDialogManager.showNoInternetDialog(this@BaseActivity)
+                        }
+
+                        NetworkState.SLOW -> {
+                            NetworkDialogManager.showSlowInternetDialog(this@BaseActivity)
+                        }
+
+                        NetworkState.TIMEOUT -> {
+                            NetworkDialogManager.showTimeoutDialog(this@BaseActivity)
+                        }
+
+                        NetworkState.SERVER_ERROR -> {
+                            NetworkDialogManager.showServerErrorDialog(this@BaseActivity)
+                        }
+
+                        else -> {}
+                    }
+                }
+            }
         }
     }
 }

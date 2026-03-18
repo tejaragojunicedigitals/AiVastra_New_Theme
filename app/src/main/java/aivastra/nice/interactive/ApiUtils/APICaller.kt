@@ -1,5 +1,10 @@
 package com.example.facewixlatest.ApiUtils
 
+import aivastra.nice.interactive.network.NetworkInterceptor
+import aivastra.nice.interactive.network.NetworkMonitor
+import aivastra.nice.interactive.network.NetworkState
+import android.annotation.SuppressLint
+import android.content.Context
 import android.util.Log
 import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.databind.DeserializationFeature
@@ -25,19 +30,29 @@ import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLHandshakeException
 
+@SuppressLint("StaticFieldLeak")
 object APICaller {
+
+    private lateinit var context: Context
+
+    fun init(appContext: Context) {
+        context = appContext.applicationContext
+    }
+
     val retrofitInstance: APIInterface
         get() {
             val httpLoggingInterceptor = HttpLoggingInterceptor()
                 .setLevel(HttpLoggingInterceptor.Level.BODY)
+            val networkInterceptor = NetworkInterceptor(context)
             val gson = GsonBuilder()
                 .setLenient()
                 .create()
             val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+                .addInterceptor(networkInterceptor)
                 .addInterceptor(httpLoggingInterceptor)
-                .connectTimeout(90, TimeUnit.SECONDS)
-                .readTimeout(90, TimeUnit.SECONDS)
-                .writeTimeout(90, TimeUnit.SECONDS)
+                .connectTimeout(120, TimeUnit.SECONDS)
+                .readTimeout(120, TimeUnit.SECONDS)
+                .writeTimeout(120, TimeUnit.SECONDS)
                 .retryOnConnectionFailure(false)
                 .build()
             val retrofit = Retrofit.Builder().baseUrl(baseURL())

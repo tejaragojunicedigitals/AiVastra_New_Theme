@@ -2,41 +2,18 @@ package aivastra.nice.interactive.activity.camera
 
 import aivastra.nice.interactive.Loader.LoaderManager
 import android.os.Bundle
-import androidx.activity.enableEdgeToEdge
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.activity.launch.BaseActivity
-import aivastra.nice.interactive.databinding.ActivityCameraCaptureBinding
 import aivastra.nice.interactive.databinding.ActivityUniversalCameraBinding
-import aivastra.nice.interactive.gpufilters.BeautyFilter
-import aivastra.nice.interactive.gpufilters.ContrastFilter
-import aivastra.nice.interactive.gpufilters.CurveCraftFilter
-import aivastra.nice.interactive.gpufilters.DreamBeautyFilter
-import aivastra.nice.interactive.gpufilters.DreamGlowFilter
-import aivastra.nice.interactive.gpufilters.EdgeDefineFilter
-import aivastra.nice.interactive.gpufilters.ExposureFilter
-import aivastra.nice.interactive.gpufilters.FocusHaloFilter
-import aivastra.nice.interactive.gpufilters.GlowEnhanceFilter
-import aivastra.nice.interactive.gpufilters.HDRToneFilter
-import aivastra.nice.interactive.gpufilters.HueFilter
-import aivastra.nice.interactive.gpufilters.LevelsFilter
-import aivastra.nice.interactive.gpufilters.LightSculptFilter
-import aivastra.nice.interactive.gpufilters.LumaGlowFilter
-import aivastra.nice.interactive.gpufilters.SaturationFilter
-import aivastra.nice.interactive.gpufilters.SilkSkinFilter
-import aivastra.nice.interactive.gpufilters.SoftFocusFilter
-import aivastra.nice.interactive.gpufilters.SoftSkinFilter
-import aivastra.nice.interactive.gpufilters.ToneTunerFilter
-import aivastra.nice.interactive.gpufilters.VelvetFilter
-import aivastra.nice.interactive.gpufilters.WarmBloomFilter
+import aivastra.nice.interactive.dialog.ShowErrorAlertDialog
 import aivastra.nice.interactive.utils.AppConstant
 import aivastra.nice.interactive.utils.PrefsManager
 import aivastra.nice.interactive.utils.ViewControll
 import aivastra.nice.interactive.viewmodel.Dress.DressesTypeDataModel
+import aivastra.nice.interactive.viewmodel.others.PoseDetectionUtils
 import android.Manifest
-import android.animation.Animator
+import android.app.ActivityManager
+import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -47,20 +24,21 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
-import android.widget.SeekBar
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
-import com.airbnb.lottie.LottieCompositionFactory
-import com.airbnb.lottie.LottieDrawable
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.pose.Pose
+import com.google.mlkit.vision.pose.PoseDetection
+import com.google.mlkit.vision.pose.PoseLandmark
+import com.google.mlkit.vision.pose.defaults.PoseDetectorOptions
 import com.otaliastudios.cameraview.CameraException
 import com.otaliastudios.cameraview.CameraListener
 import com.otaliastudios.cameraview.CameraOptions
@@ -73,15 +51,12 @@ import com.otaliastudios.cameraview.controls.Mode
 import com.otaliastudios.cameraview.controls.PictureFormat
 import com.otaliastudios.cameraview.controls.Preview
 import com.otaliastudios.cameraview.controls.WhiteBalance
-import com.otaliastudios.cameraview.filter.Filter
-import com.otaliastudios.cameraview.filter.MultiFilter
 import com.otaliastudios.cameraview.filter.NoFilter
-import com.otaliastudios.cameraview.filters.FillLightFilter
-import com.otaliastudios.cameraview.filters.VignetteFilter
 import com.otaliastudios.cameraview.size.AspectRatio
 import com.otaliastudios.cameraview.size.SizeSelectors
 import com.yalantis.ucrop.UCrop
 import com.yalantis.ucrop.util.FileUtils
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -91,6 +66,7 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.UUID
+import kotlin.math.abs
 
 class UniversalCameraActivity : BaseActivity() {
     private lateinit var binding: ActivityUniversalCameraBinding
@@ -185,7 +161,6 @@ class UniversalCameraActivity : BaseActivity() {
         // add camera listener to receive picture result
         binding.camera.addCameraListener(object : CameraListener() {
             override fun onPictureTaken(result: com.otaliastudios.cameraview.PictureResult) {
-                LoaderManager.remove(this@UniversalCameraActivity)
                 // Save to a file (background handled by toFile callback)
                 val file = createImageFile()?: return
                 result.toFile(file) { savedFile ->
@@ -198,15 +173,9 @@ class UniversalCameraActivity : BaseActivity() {
                         )
                     }
                     photoURI?.let {path ->
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            val rotationFixedUri = fixImageRotationFromUri(this@UniversalCameraActivity,path)
-                            withContext(Dispatchers.Main) {
-                                if (rotationFixedUri != null) {
-                                    startUCropImage(rotationFixedUri)
-                                }else{
-                                    startUCropImage(path)
-                                }
-                            }
+                        CoroutineScope(Dispatchers.Default).launch {
+                            // run pose detection
+                            validatePose(this@UniversalCameraActivity,path)
                         }
                     }
                 }
@@ -326,13 +295,50 @@ class UniversalCameraActivity : BaseActivity() {
         return supported.first()
     }
 
-    private fun isKioskDevice(): Boolean {
+   /* private fun isKioskDevice(): Boolean {
         return packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
                 Build.MANUFACTURER.lowercase().contains("rockchip") ||
                 Build.MODEL.lowercase().contains("rk") ||
                 Build.DEVICE.lowercase().contains("box") ||
                 Build.DEVICE.lowercase().contains("kiosk")
-    }
+    }*/
+   fun isKioskDevice(): Boolean {
+
+       // ✅ 1. Lock Task Mode (REAL kiosk)
+       val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+       val isLockTask = am.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_LOCKED
+
+       // ✅ 2. Device Owner (enterprise kiosk)
+       val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+       val isDeviceOwner = dpm.isDeviceOwnerApp(packageName)
+
+       // ✅ 3. Leanback (Android TV)
+       val isTv = packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+
+       // ✅ 4. Custom hardware detection
+       val manufacturer = Build.MANUFACTURER.lowercase()
+       val model = Build.MODEL.lowercase()
+       val device = Build.DEVICE.lowercase()
+       val product = Build.PRODUCT.lowercase()
+
+       val isCustomKiosk =
+           manufacturer.contains("rockchip") ||
+                   manufacturer.contains("amlogic") ||
+                   manufacturer.contains("allwinner") ||
+
+                   model.contains("rk") ||
+                   model.contains("box") ||
+                   model.contains("tv") ||
+
+                   device.contains("box") ||
+                   device.contains("tv") ||
+                   device.contains("kiosk") ||
+
+                   product.contains("box") ||
+                   product.contains("tv")
+
+       return isLockTask || isDeviceOwner || isTv || isCustomKiosk
+   }
 
     private fun hasUsbCamera(context: Context): Boolean {
         try{
@@ -502,7 +508,7 @@ class UniversalCameraActivity : BaseActivity() {
 
             val shouldMirror = binding.camera.facing == Facing.FRONT && !hasUsbCamera(context)
 
-         /*   val isFrontCamera = if(binding.camera.facing== Facing.FRONT){
+           /*val isFrontCamera = if(binding.camera.facing== Facing.FRONT){
                 true
             }else{
                 false
@@ -513,7 +519,16 @@ class UniversalCameraActivity : BaseActivity() {
             }
 
             val matrix = Matrix()
-            if (rotationDegrees != 0) matrix.postRotate(rotationDegrees.toFloat())
+
+            if (rotationDegrees != 0 && isKioskDevice()){
+                matrix.postRotate(-rotationDegrees.toFloat())
+            }else{
+                matrix.postRotate(rotationDegrees.toFloat())
+            }
+           /* if (rotationDegrees != 0){
+                matrix.postRotate(-rotationDegrees.toFloat())
+            }*/
+
             if (shouldMirror) matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
 
             val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
@@ -534,6 +549,99 @@ class UniversalCameraActivity : BaseActivity() {
             imageUri // fallback
         }
     }
+
+    private fun validatePose(context: Context, imageUri: Uri){
+         try {
+            val inputStream = context.contentResolver.openInputStream(imageUri)
+             if(inputStream==null){
+                 LoaderManager.remove(this@UniversalCameraActivity)
+                 return
+             }
+            val tempFile = File(context.cacheDir, "fixed_${System.currentTimeMillis()}.jpg")
+            FileOutputStream(tempFile).use { out -> inputStream.copyTo(out) }
+            inputStream.close()
+            val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath)
+             if(PoseDetectionUtils.isImageBlurred(bitmap,10.0)){
+                 runOnUiThread {
+                     LoaderManager.remove(this@UniversalCameraActivity)
+                     showBlurredImageValidateDialog(tempFile)
+                 }
+                 return
+             }
+            val image = InputImage.fromBitmap(bitmap, 0)
+
+            val options = PoseDetectorOptions.Builder()
+                .setDetectorMode(PoseDetectorOptions.SINGLE_IMAGE_MODE)
+                .build()
+
+            val poseDetector = PoseDetection.getClient(options)
+
+            poseDetector.process(image)
+                .addOnSuccessListener { pose ->
+                    LoaderManager.remove(this@UniversalCameraActivity)
+                    if (PoseDetectionUtils.isValidPoseDetect(pose)) {
+                        // VALID IMAGE
+                        proceedToNext(imageUri)
+                    } else {
+                        // Ask user to stand straight
+                        val errorMsg = PoseDetectionUtils.getPoseError(pose)
+                        showPoseNotValidateDialog(tempFile,errorMsg)
+                    }
+                }
+        }catch (e:Exception){
+            e.printStackTrace()
+        }
+    }
+
+    private fun proceedToNext(imageUri: Uri){
+        lifecycleScope.launch(Dispatchers.IO) {
+            val rotationFixedUri = fixImageRotationFromUri(this@UniversalCameraActivity,imageUri)
+            withContext(Dispatchers.Main) {
+                if (rotationFixedUri != null) {
+                    startUCropImage(rotationFixedUri)
+                }else{
+                    startUCropImage(imageUri)
+                }
+            }
+        }
+    }
+
+    fun showPoseNotValidateDialog(file: File,poseError:String) {
+        try{
+            val showErrorAlertDialog = ShowErrorAlertDialog(
+                ShowErrorAlertDialog.ImageSourceType.FromFile(file),
+                "Incorrect Pose",
+                "$poseError \n Please stand straight facing the camera with your head upright. Keep your body centered and both feet aligned."){
+                binding.camera.postDelayed({
+                    if (binding.camera.isOpened) {
+                        startCountdown()
+                    }
+                },1000)
+            }
+            showErrorAlertDialog.show(supportFragmentManager, "ShowErrorAlertDialog")
+        }catch (e:Exception){
+            e.printStackTrace()
+        }
+    }
+
+    fun showBlurredImageValidateDialog(file: File) {
+        try{
+            val showErrorAlertDialog = ShowErrorAlertDialog(
+                ShowErrorAlertDialog.ImageSourceType.FromFile(file),
+                "Blurry Image Detected",
+                "Your photo appears slightly blurry. Please hold steady, ensure good lighting, and retake the picture."){
+                binding.camera.postDelayed({
+                    if (binding.camera.isOpened) {
+                        startCountdown()
+                    }
+                },1000)
+            }
+            showErrorAlertDialog.show(supportFragmentManager, "ShowErrorAlertDialog")
+        }catch (e:Exception){
+            e.printStackTrace()
+        }
+    }
+
 
     private fun isFrontCameraImage(imagePath: String): Boolean {
         return try {

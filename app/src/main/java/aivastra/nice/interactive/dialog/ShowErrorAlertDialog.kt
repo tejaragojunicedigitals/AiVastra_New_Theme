@@ -18,7 +18,8 @@ import java.io.File
 
 class ShowErrorAlertDialog(private val imageSourceType: ImageSourceType,
                            private  val txtErrorTitle:String,
-                           private  val txtErrorMsg:String) : BottomSheetDialogFragment() {
+                           private  val txtErrorMsg:String,
+                           private var positiveBtnClick: (() -> Unit)? = null) : BottomSheetDialogFragment() {
 
     private lateinit var errorAlertBinding: DialogErrorAlertBinding
 
@@ -80,6 +81,7 @@ class ShowErrorAlertDialog(private val imageSourceType: ImageSourceType,
         }
         Glide.with(requireActivity()).load(imageUrl).into(errorAlertBinding.imgAlertIcon)
         errorAlertBinding.btnPositive.setOnClickListener{
+            positiveBtnClick?.invoke()
             dismiss()
         }
     }

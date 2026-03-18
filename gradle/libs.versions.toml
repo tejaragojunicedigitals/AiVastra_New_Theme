@@ -47,6 +47,8 @@ cameraview = "2.7.2"
 gpuimage = "2.1.0"
 mlkit = "17.0.0"
 glide_okhttp = "4.16.0"
+pose-detection = "18.0.0-beta5"
+opencv = "4.5.5"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -98,7 +100,8 @@ androidx-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", ver
 androidx-exoplayer_ui = { group = "androidx.media3", name = "media3-ui", version.ref = "exoplayer" }
 androidx-cameraview = { group = "com.otaliastudios", name = "cameraview", version.ref = "cameraview" }
 androidx-gpuimage= { group = "jp.co.cyberagent.android", name = "gpuimage", version.ref = "gpuimage" }
-
+androidx-pose-detection= { group = "com.google.mlkit", name = "pose-detection", version.ref = "pose-detection" }
+androidx-opencv= { group = "org.opencv", name = "opencv-android", version.ref = "opencv" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

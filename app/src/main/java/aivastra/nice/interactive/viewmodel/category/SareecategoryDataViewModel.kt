@@ -526,7 +526,7 @@ class SareecategoryDataViewModel () : ViewModel() {
                     override fun <T> onSuccess(modelclass: T): Class<T>? {
                         val getModelClass = modelclass as UploadImageModel
                         if (getModelClass.status==false) {
-                            _error.postValue(APIConstant.fileNotSupported)
+                            _error.postValue(modelclass.message)
                             return null
                         }
                         _uploadUserImageData.value = getModelClass
