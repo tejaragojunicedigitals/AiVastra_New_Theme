@@ -105,4 +105,5 @@ dependencies {
     implementation(libs.androidx.cameraview)
     implementation(libs.androidx.gpuimage)
     implementation(libs.androidx.pose.detection)
+    implementation(libs.androidx.mediapipe)
 }

@@ -26,4 +26,7 @@
     <string name="leave">Leave</string>
     <string name="unsaved_changes">Unsaved Changes</string>
     <string name="setting_not_saved_alert">You have unsaved settings. If you go back now, your changes will be lost. Are you sure you want to continue?</string>
+    <string name="server_connection">Server Connection Issue</string>
+    <string name="server_connection_out">Server Connection Timeout</string>
+    <string name="server_error_alert">We are currently unable to connect to the server.Please try again in a few moments.</string>
 </resources>

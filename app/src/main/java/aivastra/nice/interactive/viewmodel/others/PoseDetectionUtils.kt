@@ -1,18 +1,27 @@
 package aivastra.nice.interactive.viewmodel.others
 
+import aivastra.nice.interactive.activity.camera.UniversalCameraActivity
+import aivastra.nice.interactive.dialog.ShowErrorAlertDialog
+import aivastra.nice.interactive.utils.AppConstant
+import aivastra.nice.interactive.utils.PoseLandmarkCache
+import android.app.Activity
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.appcompat.app.AppCompatActivity
 import com.google.mlkit.vision.pose.Pose
 import com.google.mlkit.vision.pose.PoseLandmark
 import java.lang.Math.atan2
 
 object PoseDetectionUtils {
 
-    fun isHeadStraight(pose: Pose): Boolean {
+    private var landmarkCache: PoseLandmarkCache? = null
 
-        val nose = pose.getPoseLandmark(PoseLandmark.NOSE)
-        val leftShoulder = pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
-        val rightShoulder = pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER)
+    fun isHeadStraight(): Boolean {
+
+        val cache = landmarkCache ?: return false
+        val nose = cache.nose
+        val leftShoulder = cache.leftShoulder
+        val rightShoulder = cache.rightShoulder
 
         if (nose == null || leftShoulder == null || rightShoulder == null) return false
 
@@ -26,18 +35,19 @@ object PoseDetectionUtils {
         return diff < shoulderWidth * 0.25   // 🔥 dynamic tolerance
     }
 
-    fun isUpperBodyCorrect(pose: Pose): Boolean {
+    fun isUpperBodyCorrect(): Boolean {
 
-        val headOk = isHeadStraight(pose)
-        val shoulderOk = isShoulderStraight(pose)
+        val headOk = isHeadStraight()
+        val shoulderOk = isShoulderStraight()
 
         return headOk || shoulderOk   // 🔥 KEY CHANGE
     }
 
-    fun isShoulderStraight(pose: Pose): Boolean {
+    fun isShoulderStraight(): Boolean {
 
-        val left = pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
-        val right = pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER)
+        val cache = landmarkCache ?: return false
+        val left = cache.leftShoulder
+        val right = cache.rightShoulder
 
         if (left == null || right == null) return false
 
@@ -54,19 +64,30 @@ object PoseDetectionUtils {
         return Math.abs(angle) < 15   // 🔥 increased tolerance (10 → 15)
     }
 
-    fun isBodyStraight(pose: Pose): Boolean {
-        val leftShoulder = pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
-        val leftHip = pose.getPoseLandmark(PoseLandmark.LEFT_HIP)
+    fun isBodyStraight(): Boolean {
 
-        if (leftShoulder != null && leftHip != null) {
+        val cache = landmarkCache ?: return false
+        val leftShoulder = cache.leftShoulder
+        val leftHip = cache.leftHip
+
+        val rightShoulder = cache.rightShoulder
+        val rightHip = cache.rightHip
+
+        val leftStraight = if (leftShoulder != null && leftHip != null) {
             val dx = leftHip.position.x - leftShoulder.position.x
             val dy = leftHip.position.y - leftShoulder.position.y
-
             val angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble()))
+            Math.abs(angle - 90) < 10
+        } else false
 
-            return Math.abs(angle - 90) < 10  // 90° = vertical
-        }
-        return false
+        val rightStraight = if (rightShoulder != null && rightHip != null) {
+            val dx = rightHip.position.x - rightShoulder.position.x
+            val dy = rightHip.position.y - rightShoulder.position.y
+            val angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble()))
+            Math.abs(angle - 90) < 10
+        } else false
+
+        return leftStraight || rightStraight   // ✅ flexible
     }
 
   /*  fun isLegBalanced(pose: Pose): Boolean {
@@ -118,14 +139,14 @@ object PoseDetectionUtils {
         return isSideBalanced && isSameLevel && kneeBalanced
     }*/
 
-    fun isLegBalanced(pose: Pose): Boolean {
-
-        val leftAnkle = pose.getPoseLandmark(PoseLandmark.LEFT_ANKLE)
-        val rightAnkle = pose.getPoseLandmark(PoseLandmark.RIGHT_ANKLE)
-        val leftHip = pose.getPoseLandmark(PoseLandmark.LEFT_HIP)
-        val rightHip = pose.getPoseLandmark(PoseLandmark.RIGHT_HIP)
-        val leftKnee = pose.getPoseLandmark(PoseLandmark.LEFT_KNEE)
-        val rightKnee = pose.getPoseLandmark(PoseLandmark.RIGHT_KNEE)
+    fun isLegBalanced(): Boolean {
+        val cache = landmarkCache ?: return false
+        val leftAnkle = cache.leftAnkle
+        val rightAnkle = cache.rightAnkle
+        val leftHip = cache.leftHip
+        val rightHip = cache.rightHip
+        val leftKnee = cache.leftKnee
+        val rightKnee =cache.rightKnee
 
         if (leftAnkle == null || rightAnkle == null ||
             leftHip == null || rightHip == null ||
@@ -136,7 +157,7 @@ object PoseDetectionUtils {
 
         // ✅ 1. Side distance (relaxed)
         val legDistanceX = Math.abs(leftAnkle.position.x - rightAnkle.position.x)
-        val isSideBalanced = legDistanceX > bodyWidth * 0.12
+        val isSideBalanced = legDistanceX > bodyWidth * 0.18
 
         // ✅ 2. Cross check (mirror safe)
         val isNotCrossed =
@@ -155,8 +176,8 @@ object PoseDetectionUtils {
         val leftAngle = getSafeAngle(leftHip, leftKnee, leftAnkle)
         val rightAngle = getSafeAngle(rightHip, rightKnee, rightAnkle)
 
-        val isLeftStraight = leftAngle > 140   // 🔥 relaxed
-        val isRightStraight = rightAngle > 140
+        val isLeftStraight = leftAngle > 160   // 🔥 relaxed
+        val isRightStraight = rightAngle > 160
 
         return isSideBalanced && isNotCrossed && isSameLevel && kneeBalanced && isLeftStraight && isRightStraight
     }
@@ -182,46 +203,129 @@ object PoseDetectionUtils {
         return Math.toDegrees(Math.acos(cosValue))
     }
 
-    fun isHandVisible(pose: Pose): Boolean {
+    fun isHandVisible(): Boolean {
 
-        val leftWrist = pose.getPoseLandmark(PoseLandmark.LEFT_WRIST)
-        val rightWrist = pose.getPoseLandmark(PoseLandmark.RIGHT_WRIST)
-        val leftHip = pose.getPoseLandmark(PoseLandmark.LEFT_HIP)
-        val rightHip = pose.getPoseLandmark(PoseLandmark.RIGHT_HIP)
+        val cache = landmarkCache ?: return false
 
-        // ❌ If any landmark missing → reject
-        if (leftWrist == null || rightWrist == null || leftHip == null || rightHip == null) {
-            return false
+        val lw = cache.leftWrist
+        val rw = cache.rightWrist
+        val le = cache.leftElbow
+        val re = cache.rightElbow
+        val ls = cache.leftShoulder
+        val rs = cache.rightShoulder
+        val lh = cache.leftHip
+        val rh = cache.rightHip
+
+        if (lw == null || rw == null || le == null || re == null ||
+            ls == null || rs == null || lh == null || rh == null
+        ) return false
+
+        val bodyWidth = Math.abs(lh.position.x - rh.position.x)
+
+        // BOTH HANDS MUST BE VISIBLE
+        val leftVisible = lw.inFrameLikelihood > 0.5
+        val rightVisible = rw.inFrameLikelihood > 0.5
+        if (!leftVisible || !rightVisible) return false
+
+        // POCKET DETECTION
+       /* val leftAngle = getSafeAngle(ls, le, lw)
+        val rightAngle = getSafeAngle(rs, re, rw)
+
+        val leftPocket =
+            leftAngle < 150 &&
+                    Math.abs(le.position.x - lh.position.x) < bodyWidth * 0.30
+
+        val rightPocket =
+            rightAngle < 150 &&
+                    Math.abs(re.position.x - rh.position.x) < bodyWidth * 0.30
+
+        if (leftPocket || rightPocket) return false*/
+        val bodyHeight = Math.abs(ls.position.y - lh.position.y)
+
+        val leftWristHipX = Math.abs(lw.position.x - lh.position.x) / bodyWidth
+        val rightWristHipX = Math.abs(rw.position.x - rh.position.x) / bodyWidth
+
+        val leftWristHipY = Math.abs(lw.position.y - lh.position.y) / bodyHeight
+        val rightWristHipY = Math.abs(rw.position.y - rh.position.y) / bodyHeight
+
+        val leftElbowHipX = Math.abs(le.position.x - lh.position.x) / bodyWidth
+        val rightElbowHipX = Math.abs(re.position.x - rh.position.x) / bodyWidth
+
+        val leftAngle = getSafeAngle(ls, le, lw)
+        val rightAngle = getSafeAngle(rs, re, rw)
+
+        val leftPocket =
+            (leftWristHipX < 0.35) &&
+                    (leftWristHipY < 0.6) &&
+                    (leftElbowHipX < 0.35) &&
+                    (leftAngle < 160)
+
+        val rightPocket =
+            (rightWristHipX < 0.35) &&
+                    (rightWristHipY < 0.6) &&
+                    (rightElbowHipX < 0.35) &&
+                    (rightAngle < 160)
+
+        if (leftPocket || rightPocket) return false
+
+        //  CROSS HAND DETECTION
+        val isCrossed =
+            (lw.position.x > rw.position.x && ls.position.x < rs.position.x) ||
+                    (lw.position.x < rw.position.x && ls.position.x > rs.position.x)
+
+        if (isCrossed) return false
+
+        val handsDistance = Math.abs(lw.position.x - rw.position.x)
+        if (handsDistance < bodyWidth * 0.12) return false
+
+        //  HANDS SHOULD NOT BE RAISED
+        val leftDown = lw.position.y > ls.position.y
+        val rightDown = rw.position.y > rs.position.y
+        if (!leftDown || !rightDown) return false
+
+        // FOLDED HAND DETECTION
+        if (leftAngle < 100 || rightAngle < 100) return false
+
+        val msg = buildString {
+            append("📏 BW=${bodyWidth.toInt()}\n")
+            append("👁 VIS L=$leftVisible R=$rightVisible\n")
+            append("🧥 POCKET L=$leftPocket R=$rightPocket\n")
+            append("🔀 CROSS=$isCrossed D=${handsDistance.toInt()}\n")
+            append("⬇ DOWN L=$leftDown R=$rightDown\n")
+            append("📐 ANG L=${"%.1f".format(leftAngle)} R=${"%.1f".format(rightAngle)}\n")
+        }
+        Log.d("Hand Landmark",msg)
+        return true
+    }
+
+    fun isValidSinglePerson(): Boolean {
+
+        val cache = landmarkCache ?: return false
+
+        val ls = cache.leftShoulder
+        val rs = cache.rightShoulder
+        val lh = cache.leftHip
+        val rh = cache.rightHip
+        val nose = cache.nose
+        val la = cache.leftAnkle
+        val ra = cache.rightAnkle
+
+        val basicValid = listOf(ls, rs, lh, rh, nose, la, ra).all {
+            it != null && it.inFrameLikelihood > 0.6
         }
 
-        // 📏 Use body width as dynamic reference
-        val bodyWidth = Math.abs(leftHip.position.x - rightHip.position.x)
+        if (!basicValid) return false
 
-        // ✅ 1. Allow hand around hip (not strict below)
-        val leftNearHip = Math.abs(leftWrist.position.y - leftHip.position.y) < bodyWidth * 0.6
-        val rightNearHip = Math.abs(rightWrist.position.y - rightHip.position.y) < bodyWidth * 0.6
+        // 🔥 Extra checks
+        val shoulderWidth = Math.abs(ls!!.position.x - rs!!.position.x)
+        if (shoulderWidth < 40f) return false
 
-        // ✅ 2. Allow slight inward/outward movement
-        val leftAway = Math.abs(leftWrist.position.x - leftHip.position.x) > bodyWidth * 0.1
-        val rightAway = Math.abs(rightWrist.position.x - rightHip.position.x) > bodyWidth * 0.1
+        val leftBody = Math.abs(ls.position.x - lh!!.position.x)
+        val rightBody = Math.abs(rs.position.x - rh!!.position.x)
 
-        // ❌ 3. Reject if both hands too close to body (pocket case)
-        val bothTooClose =
-            Math.abs(leftWrist.position.x - leftHip.position.x) < bodyWidth * 0.05 &&
-                    Math.abs(rightWrist.position.x - rightHip.position.x) < bodyWidth * 0.05
+        if (Math.abs(leftBody - rightBody) > 80f) return false
 
-        if (bothTooClose) return false
-
-        // ❌ 4. Reject if hands are together (folded/crossed)
-        val handsDistance = Math.abs(leftWrist.position.x - rightWrist.position.x)
-        val notTogether = handsDistance > bodyWidth * 0.25
-
-        // ✅ 5. Individual hand validity
-        val leftValid = leftNearHip && leftAway
-        val rightValid = rightNearHip && rightAway
-
-        // 🔥 FINAL: allow natural variation
-        return leftValid && rightValid && notTogether
+         return true
     }
 
     fun isFullBodyVisible(pose: Pose): Boolean {
@@ -241,7 +345,7 @@ object PoseDetectionUtils {
         // ✅ Only check: all parts detected with good confidence
         for (type in requiredLandmarks) {
             val landmark = pose.getPoseLandmark(type)
-            if (landmark == null || landmark.inFrameLikelihood < 0.5f) {
+            if (landmark == null || landmark.inFrameLikelihood < 0.6f) {
                 return false
             }
         }
@@ -249,36 +353,53 @@ object PoseDetectionUtils {
     }
 
     fun isValidPoseDetect(pose: Pose):Boolean {
+        prepareLandmarks(pose)
         if(!isFullBodyVisible(pose)){
             return false
         }
-        val checks = listOf(
-            isUpperBodyCorrect(pose),
-            isBodyStraight(pose),
-            isLegBalanced(pose),
-            isHandVisible(pose),
+//        if (!isValidSinglePerson()) return false
+        if (!isLegBalanced()) return false
+        if (!isHandVisible()) return false
+        if (!isUpperBodyCorrect()) return false
+        if (!isBodyStraight()) return false
+
+        return true
+    }
+
+    fun prepareLandmarks(pose: Pose) {
+        landmarkCache = PoseLandmarkCache(
+            pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER),
+            pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER),
+            pose.getPoseLandmark(PoseLandmark.LEFT_HIP),
+            pose.getPoseLandmark(PoseLandmark.RIGHT_HIP),
+            pose.getPoseLandmark(PoseLandmark.LEFT_KNEE),
+            pose.getPoseLandmark(PoseLandmark.RIGHT_KNEE),
+            pose.getPoseLandmark(PoseLandmark.LEFT_ANKLE),
+            pose.getPoseLandmark(PoseLandmark.RIGHT_ANKLE),
+            pose.getPoseLandmark(PoseLandmark.LEFT_ELBOW),
+            pose.getPoseLandmark(PoseLandmark.RIGHT_ELBOW),
+            pose.getPoseLandmark(PoseLandmark.LEFT_WRIST),
+            pose.getPoseLandmark(PoseLandmark.RIGHT_WRIST),
+            pose.getPoseLandmark(PoseLandmark.NOSE)
         )
-
-        val passCount = checks.count { it }
-
-        return passCount >= 4   // ✅ allow minor mistakes
     }
 
     fun getPoseError(pose: Pose): String {
 
-        if(!isUpperBodyCorrect(pose)
-            && !isHandVisible(pose)
-            && !isBodyStraight(pose)
-            && !isLegBalanced(pose)
+        if(!isUpperBodyCorrect()
+            && !isHandVisible()
+            && !isBodyStraight()
+            && !isLegBalanced()
         ){
             return "Invalid pose"
         }
 
         if (!isFullBodyVisible(pose)) return "Full body not detected"
-        if (!isUpperBodyCorrect(pose)) return "Keep your head and shoulder straight"
-        if (!isHandVisible(pose)) return "Keep both hands down relaxed"
-        if (!isBodyStraight(pose)) return "Stand straight"
-        if (!isLegBalanced(pose)) return "Balance your legs"
+        if (!isUpperBodyCorrect()) return "Keep your head and shoulder straight"
+        if (!isHandVisible()) return "Keep both hands down relaxed"
+//        if (!isValidSinglePerson()) return "Multiple person detected. Only one person allowed"
+        if (!isBodyStraight()) return "Stand straight"
+        if (!isLegBalanced()) return "Balance your legs"
 
         return "Invalid pose"
     }

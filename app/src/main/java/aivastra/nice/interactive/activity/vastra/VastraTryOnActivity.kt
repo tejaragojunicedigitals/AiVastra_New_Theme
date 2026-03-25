@@ -391,8 +391,8 @@ class VastraTryOnActivity : BaseActivity() {
 
                 dismissTryOnProcessingDialog()
 
-                var title = getString(R.string.no_clear_photo_detect)
-                var message = getString(R.string.no_body_detect_msg)
+                var title = getString(R.string.server_connection)
+                var message = getString(R.string.server_error_alert)
 
                 if (errorMsg == APIConstant.serverTimeOut) {
                     title = getString(R.string.server_busy)

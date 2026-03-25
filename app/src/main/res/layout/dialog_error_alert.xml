@@ -33,7 +33,7 @@
             android:layout_marginRight="@dimen/_10sdp"
             android:layout_marginTop="@dimen/_10sdp"
             android:fontFamily="@font/popins_medium"
-            android:text="@string/no_clear_photo_detect"
+            android:text="@string/server_connection_out"
             android:textAlignment="center"
             android:textColor="@color/white"
             android:textSize="@dimen/_16sdp" />
@@ -45,7 +45,7 @@
             android:layout_marginRight="@dimen/_10sdp"
             android:layout_marginBottom="@dimen/_5sdp"
             android:fontFamily="@font/popins_regular"
-            android:text="@string/no_body_detect_msg"
+            android:text="@string/server_error_alert"
             android:textAlignment="center"
             android:textColor="@color/white"
             android:id="@+id/txt_alert_msg"

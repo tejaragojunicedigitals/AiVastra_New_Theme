@@ -245,7 +245,7 @@ class SareecategoryDataViewModel () : ViewModel() {
                 repository.uploadUserFaceSwapAPI(hashMapData,object : APICaller.APICallBackWithError{
                     override fun <T> onSuccess(modelclass: T): Class<T>? {
                         val getModelClass = modelclass as DressTryOnResultModel
-                        if (getModelClass.status.equals("error")) {
+                        if (getModelClass.status==false) {
 //                            _error.postValue(APIConstant.fileNotSupported)
                             fetchVastraTryOnResultAPI(activity,getModelClass.promt_data.garment_id
                                 ,deviceId,getModelClass.promt_data.promt_id,getModelClass.promt_data.userimage_id)
@@ -290,7 +290,7 @@ class SareecategoryDataViewModel () : ViewModel() {
                 repository.promtVastraResultTryOnAPI(hashMapData,object : APICaller.APICallBackWithError{
                     override fun <T> onSuccess(modelclass: T): Class<T>? {
                         val getModelClass = modelclass as DressTryOnResultModel
-                        if (getModelClass.status.equals("error")) {
+                        if (getModelClass.status==false) {
                             if(tryOnCount>5){
                                 tryOnCount = 0
                                 _error.postValue(APIConstant.serverTimeOut)

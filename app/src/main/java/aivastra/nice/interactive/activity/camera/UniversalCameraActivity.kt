@@ -11,6 +11,7 @@ import aivastra.nice.interactive.utils.PrefsManager
 import aivastra.nice.interactive.utils.ViewControll
 import aivastra.nice.interactive.viewmodel.Dress.DressesTypeDataModel
 import aivastra.nice.interactive.viewmodel.others.PoseDetectionUtils
+import aivastra.nice.interactive.viewmodel.others.PoseValidator
 import android.Manifest
 import android.app.ActivityManager
 import android.app.admin.DevicePolicyManager
@@ -35,9 +36,8 @@ import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.pose.Pose
 import com.google.mlkit.vision.pose.PoseDetection
-import com.google.mlkit.vision.pose.PoseLandmark
+import com.google.mlkit.vision.pose.PoseDetector
 import com.google.mlkit.vision.pose.defaults.PoseDetectorOptions
 import com.otaliastudios.cameraview.CameraException
 import com.otaliastudios.cameraview.CameraListener
@@ -56,9 +56,9 @@ import com.otaliastudios.cameraview.size.AspectRatio
 import com.otaliastudios.cameraview.size.SizeSelectors
 import com.yalantis.ucrop.UCrop
 import com.yalantis.ucrop.util.FileUtils
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -66,7 +66,6 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.UUID
-import kotlin.math.abs
 
 class UniversalCameraActivity : BaseActivity() {
     private lateinit var binding: ActivityUniversalCameraBinding
@@ -126,6 +125,13 @@ class UniversalCameraActivity : BaseActivity() {
         }
         binding.btnFlipCamera.setOnClickListener {
             binding.camera.toggleFacing()
+            // ✅ Get updated facing AFTER toggle
+            val newFacing = binding.camera.facing
+            if (newFacing == Facing.FRONT) {
+                PrefsManager.putString(PrefsManager.KEY_SUPPORTED_CAMERA, "Front Camera")
+            } else {
+                PrefsManager.putString(PrefsManager.KEY_SUPPORTED_CAMERA, "Back Camera")
+            }
         }
         binding.swipeAnimation.llMainRoot.setOnClickListener {
             binding.swipeAnimation.llMainRoot.isVisible = false
@@ -161,6 +167,9 @@ class UniversalCameraActivity : BaseActivity() {
         // add camera listener to receive picture result
         binding.camera.addCameraListener(object : CameraListener() {
             override fun onPictureTaken(result: com.otaliastudios.cameraview.PictureResult) {
+                if(binding.camera.isOpened){
+                    binding.camera.close()
+                }
                 // Save to a file (background handled by toFile callback)
                 val file = createImageFile()?: return
                 result.toFile(file) { savedFile ->
@@ -172,10 +181,17 @@ class UniversalCameraActivity : BaseActivity() {
                             it
                         )
                     }
-                    photoURI?.let {path ->
-                        CoroutineScope(Dispatchers.Default).launch {
-                            // run pose detection
-                            validatePose(this@UniversalCameraActivity,path)
+                    photoURI?.let { path ->
+                        lifecycleScope.launch {
+                            val rotationFixedUri = withContext(Dispatchers.IO) {
+                                fixImageRotationFromUri(this@UniversalCameraActivity, path)
+                            }
+                            if (rotationFixedUri != null) {
+                                validatePose(rotationFixedUri)
+                            } else {
+                                LoaderManager.remove(this@UniversalCameraActivity)
+                                startUCropImage(path)
+                            }
                         }
                     }
                 }
@@ -550,60 +566,103 @@ class UniversalCameraActivity : BaseActivity() {
         }
     }
 
-    private fun validatePose(context: Context, imageUri: Uri){
-         try {
-            val inputStream = context.contentResolver.openInputStream(imageUri)
-             if(inputStream==null){
-                 LoaderManager.remove(this@UniversalCameraActivity)
-                 return
-             }
-            val tempFile = File(context.cacheDir, "fixed_${System.currentTimeMillis()}.jpg")
-            FileOutputStream(tempFile).use { out -> inputStream.copyTo(out) }
-            inputStream.close()
-            val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath)
-             if(PoseDetectionUtils.isImageBlurred(bitmap,10.0)){
-                 runOnUiThread {
-                     LoaderManager.remove(this@UniversalCameraActivity)
-                     showBlurredImageValidateDialog(tempFile)
-                 }
-                 return
-             }
-            val image = InputImage.fromBitmap(bitmap, 0)
+    private fun validatePose(imageUri: Uri) {
+        lifecycleScope.launch {
+            var tempFile: File? = null
+            var poseDetector: PoseDetector? = null
+            try {
+                val bitmap = withContext(Dispatchers.IO) {
+                    val inputStream = contentResolver.openInputStream(imageUri)
+                        ?: return@withContext null
 
-            val options = PoseDetectorOptions.Builder()
-                .setDetectorMode(PoseDetectorOptions.SINGLE_IMAGE_MODE)
-                .build()
+                    tempFile = File(cacheDir, "fixed_${System.currentTimeMillis()}.jpg")
+                    FileOutputStream(tempFile!!).use { out -> inputStream.copyTo(out) }
+                    inputStream.close()
 
-            val poseDetector = PoseDetection.getClient(options)
+                    // ✅ Resize to avoid freeze
+                    val options = BitmapFactory.Options().apply {
+                        inSampleSize = 2
+                    }
+                    BitmapFactory.decodeFile(tempFile!!.absolutePath,options)
+                }
 
-            poseDetector.process(image)
-                .addOnSuccessListener { pose ->
+                if (bitmap == null || tempFile == null) {
                     LoaderManager.remove(this@UniversalCameraActivity)
-                    if (PoseDetectionUtils.isValidPoseDetect(pose)) {
-                        // VALID IMAGE
-                        proceedToNext(imageUri)
-                    } else {
-                        // Ask user to stand straight
-                        val errorMsg = PoseDetectionUtils.getPoseError(pose)
-                        showPoseNotValidateDialog(tempFile,errorMsg)
+                    proceedToNext(imageUri)
+                    return@launch
+                }
+
+                // ✅ Blur check
+                val isBlurred = withContext(Dispatchers.Default) {
+                    PoseDetectionUtils.isImageBlurred(bitmap, 10.0)
+                }
+
+                if (isBlurred) {
+                    LoaderManager.remove(this@UniversalCameraActivity)
+                    showBlurredImageValidateDialog(tempFile!!)
+                    return@launch
+                }
+
+               /* val image = InputImage.fromFilePath(this@UniversalCameraActivity, imageUri)
+
+                val options = PoseDetectorOptions.Builder()
+                    .setDetectorMode(PoseDetectorOptions.SINGLE_IMAGE_MODE)
+                    .build()
+
+                poseDetector = PoseDetection.getClient(options)
+
+                // ✅ Convert Task → Coroutine (important)
+                val pose = withContext(Dispatchers.IO) {
+                    suspendCancellableCoroutine { cont ->
+                        poseDetector.process(image)
+                            .addOnSuccessListener { cont.resume(it, null) }
+                            .addOnFailureListener { cont.resume(null, null) }
                     }
                 }
-        }catch (e:Exception){
-            e.printStackTrace()
+
+                LoaderManager.remove(this@UniversalCameraActivity)
+
+                if (pose == null) {
+                    proceedToNext(imageUri)
+                    return@launch
+                }
+
+                if (PoseDetectionUtils.isValidPoseDetect(pose)) {
+                    proceedToNext(imageUri)
+                } else {
+                    val errorMsg = PoseDetectionUtils.getPoseError(pose)
+                    showPoseNotValidateDialog(tempFile!!, errorMsg)
+                }*/
+                val validator = PoseValidator(this@UniversalCameraActivity)
+
+                validator.validatePose(imageUri, object : PoseValidator.PoseResultCallback {
+
+                    override fun onResult(isValid: Boolean, message: String) {
+                        LoaderManager.remove(this@UniversalCameraActivity)
+                        if (isValid) {
+                            // ✅ Perfect pose
+                            Log.d("POSE", message)
+                            proceedToNext(imageUri)
+                        } else {
+                            // ❌ Show error
+                            Log.e("POSE", message)
+                            showPoseNotValidateDialog(tempFile!!, message)
+                        }
+                    }
+                })
+            } catch (e: Exception) {
+                LoaderManager.remove(this@UniversalCameraActivity)
+                proceedToNext(imageUri)
+                e.printStackTrace()
+            } finally {
+                // ✅ VERY IMPORTANT
+                poseDetector?.close()
+            }
         }
     }
 
     private fun proceedToNext(imageUri: Uri){
-        lifecycleScope.launch(Dispatchers.IO) {
-            val rotationFixedUri = fixImageRotationFromUri(this@UniversalCameraActivity,imageUri)
-            withContext(Dispatchers.Main) {
-                if (rotationFixedUri != null) {
-                    startUCropImage(rotationFixedUri)
-                }else{
-                    startUCropImage(imageUri)
-                }
-            }
-        }
+        startUCropImage(imageUri)
     }
 
     fun showPoseNotValidateDialog(file: File,poseError:String) {
@@ -613,9 +672,7 @@ class UniversalCameraActivity : BaseActivity() {
                 "Incorrect Pose",
                 "$poseError \n Please stand straight facing the camera with your head upright. Keep your body centered and both feet aligned."){
                 binding.camera.postDelayed({
-                    if (binding.camera.isOpened) {
-                        startCountdown()
-                    }
+                    startCountdown()
                 },1000)
             }
             showErrorAlertDialog.show(supportFragmentManager, "ShowErrorAlertDialog")
@@ -631,9 +688,7 @@ class UniversalCameraActivity : BaseActivity() {
                 "Blurry Image Detected",
                 "Your photo appears slightly blurry. Please hold steady, ensure good lighting, and retake the picture."){
                 binding.camera.postDelayed({
-                    if (binding.camera.isOpened) {
-                        startCountdown()
-                    }
+                    startCountdown()
                 },1000)
             }
             showErrorAlertDialog.show(supportFragmentManager, "ShowErrorAlertDialog")
@@ -742,6 +797,9 @@ class UniversalCameraActivity : BaseActivity() {
     }
 
     private fun startCountdown() {
+        if(!binding.camera.isOpened){
+            binding.camera.open()
+        }
         val autoTimerSeconds = getTimerSeconds()
         if(autoTimerSeconds==0){
             return
@@ -768,7 +826,7 @@ class UniversalCameraActivity : BaseActivity() {
                     handler?.postDelayed(this, 1000)
                 } else {
                     stopCountdown()
-                    binding.camera.takePicture() // 🔥 Auto Capture Photo when countdown finishes
+                    binding.buttonCapture.performClick() // 🔥 Auto Capture Photo when countdown finishes
                 }
             }
         }
@@ -795,6 +853,9 @@ class UniversalCameraActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        if(!binding.camera.isOpened){
+            binding.camera.open()
+        }
         if(PrefsManager.getBoolean(PrefsManager.SETTING_CHANGED)){
             isCameraSettingChanged = true
             updateCameraFromPrefs()

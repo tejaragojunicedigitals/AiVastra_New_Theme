@@ -67,8 +67,8 @@ object NetworkDialogManager {
             if (fragmentManager.findFragmentByTag(TAG_ERROR_DIALOG) != null) return
 
             val showErrorAlertDialog = ShowErrorAlertDialog(ShowErrorAlertDialog.ImageSourceType.FromDrawbleRes(R.drawable.ic_internet),
-                "Server Connection Issue",
-                "We are currently unable to connect to the server.Please try again in a few moments.")
+                activity.getString(R.string.server_connection),
+                activity.getString(R.string.server_error_alert))
             showErrorAlertDialog.show(fragmentManager,TAG_ERROR_DIALOG)
         }catch (e:Exception){
             e.printStackTrace()
