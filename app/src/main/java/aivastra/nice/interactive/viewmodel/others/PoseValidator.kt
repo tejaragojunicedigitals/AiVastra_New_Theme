@@ -295,7 +295,7 @@ class PoseValidator(private val context: Context) {
         if (
             leftWrist == null || rightWrist == null ||
             leftElbow == null || rightElbow == null) {
-            return "Missing landmarks $errorMessage"
+            return errorMessage
         }
 
        //  Visibility
@@ -308,7 +308,7 @@ class PoseValidator(private val context: Context) {
         val rightHandDown = rightWrist.y > rightElbow.y && rightElbow.y > rightShoulder.y
 
         if (!leftHandDown || !rightHandDown) {
-            return "Not down $errorMessage"
+            return errorMessage
         }
 
       /*  //  Near waist
@@ -327,7 +327,7 @@ class PoseValidator(private val context: Context) {
        //  Hands together
         val wristDistance = abs(leftWrist.x - rightWrist.x)
         if (wristDistance < width * 0.08f) {
-            return "Hands together  $errorMessage"
+            return errorMessage
         }
 
 //        //  Cross hands
@@ -362,7 +362,7 @@ class PoseValidator(private val context: Context) {
         val rightInPocket = rightNearHip && rightSlightBend && rightNotTooDown
 
         if (leftInPocket || rightInPocket) {
-            return "pocket  $errorMessage"
+            return errorMessage
         }
 
         return "Perfect Pose ✅"

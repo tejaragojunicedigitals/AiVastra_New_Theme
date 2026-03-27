@@ -31,6 +31,8 @@
         android:src="@drawable/app_logo_vertical"
         android:layout_marginTop="@dimen/_10sdp"
         android:id="@+id/app_logo"
+        android:layout_marginLeft="@dimen/_60sdp"
+        android:layout_marginRight="@dimen/_60sdp"
         android:padding="@dimen/_10sdp"/>
 
     <ImageView
